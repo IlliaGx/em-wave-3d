@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="uk">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Електромагнітна хвиля 3D</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; height: 100%; background-color: #020617; }
+        html { height: 100%; }
+        /* Scrollbar styles */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #475569; }
+    </style>
+</head>
+
+<body class="bg-slate-950 h-full">
+    <div id="root" class="h-full"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const TRANSLATIONS = {
+            uk: {
+                title: 'ЕМ Хвиля',
+                view: 'Ракурс',
+                iso: 'Ізо',
+                front: 'X',
+                side: 'Бік',
+                top: 'Верх',
+                legendE: 'E⃗ електричне поле',
+                legendH: 'H⃗ магнітне поле',
+                legendS: 'S⃗ вектор Пойнтінга',
+                legendAxes: 'XYZ (k⃗ поширення)',
+                params: 'Параметри',
+                freq: 'Частота',
+                amp: 'Амплітуда',
+                speed: 'Швидкість',
+                polarization: 'Поляризація',
+                polLinear: 'Лінійна',
+                polCircR: 'Кругова R',
+                polCircL: 'Кругова L',
+                polEllip: 'Еліптична',
+                ellipticity: 'Еліптичність',
+                attenuation: 'Затухання',
+                viewFront: 'Вигляд вздовж X',
+                viewSide: 'Вигляд збоку (XY)',
+                physics: 'Фізика',
+                controlLegend: 'Відображення (Legend)',
+                fullscreen: '⛶',
+                exitFullscreen: '✕'
+            },
+            en: {
+                title: 'EM Wave',
+                view: 'View',
+                iso: 'Iso',
+                front: 'X',
+                side: 'Side',
+                top: 'Top',
+                legendE: 'E⃗ electric field',
+                legendH: 'H⃗ magnetic field',
+                legendS: 'S⃗ Poynting vector',
+                legendAxes: 'XYZ (k⃗ propagation)',
+                params: 'Parameters',
+                freq: 'Frequency',
+                amp: 'Amplitude',
+                speed: 'Speed',
+                polarization: 'Polarization',
+                polLinear: 'Linear',
+                polCircR: 'Circular R',
+                polCircL: 'Circular L',
+                polEllip: 'Elliptical',
+                ellipticity: 'Ellipticity',
+                attenuation: 'Attenuation',
+                viewFront: 'View along X',
+                viewSide: 'Side view (XY)',
+                physics: 'Physics',
+                controlLegend: 'Display & Legend',
+                fullscreen: '⛶',
+                exitFullscreen: '✕'
+            }
+        };
+
+        function EMWave3D() {
+            const containerRef = useRef(null);
+            const sideViewRef = useRef(null);
+            const frontViewRef = useRef(null);
+            const rendererRef = useRef(null);
+            const sceneRef = useRef(null);
+            const cameraRef = useRef(null);
+            const animationRef = useRef(null);
+            const timeRef = useRef(0);
+            const isDraggingRef = useRef(false);
+            const previousMouseRef = useRef({ x: 0, y: 0 });
+            const rotationRef = useRef({ x: 0.4, y: -0.6 });
+            const zoomRef = useRef(10);
+
+            // Lang setup
+            const getUrlLang = () => {
+                const params = new URLSearchParams(window.location.search);
+                const l = params.get('lang');
+                return (l === 'en' || l === 'uk') ? l : 'uk';
+            };
+
+            const [lang, setLang] = useState(getUrlLang);
+
+            useEffect(() => {
+                const params = new URLSearchParams(window.location.search);
+                const l = params.get('lang');
+                if (l && l !== lang && TRANSLATIONS[l]) {
+                    setLang(l);
+                }
+            }, []);
+
+            const t = TRANSLATIONS[lang] || TRANSLATIONS['uk'];
+
+            // State
+            const [paused, setPaused] = useState(false);
+            const [speed, setSpeed] = useState(1);
+            const [frequency, setFrequency] = useState(1);
+            const [amplitude, setAmplitude] = useState(1.5);
+            const [polarization, setPolarization] = useState('linear');
+            const [ellipticity, setEllipticity] = useState(0.5);
+            const [attenuation, setAttenuation] = useState(0);
+            const [showE, setShowE] = useState(true);
+            const [showH, setShowH] = useState(true);
+            const [showPoynting, setShowPoynting] = useState(false);
+            const [showAxes, setShowAxes] = useState(true);
+            const [isFullscreen, setIsFullscreen] = useState(false);
+
+            // Three.js Init
+            useEffect(() => {
+                if (!containerRef.current) return;
+                const init = () => {
+                    const scene = new THREE.Scene();
+                    scene.background = new THREE.Color(0x020617);
+                    const camera = new THREE.PerspectiveCamera(45, containerRef.current.clientWidth / containerRef.current.clientHeight, 0.1, 100);
+                    cameraRef.current = camera;
+                    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                    renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight);
+                    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+                    renderer.domElement.style.width = '100%';
+                    renderer.domElement.style.height = '100%';
+                    containerRef.current.appendChild(renderer.domElement);
+                    rendererRef.current = renderer;
+                    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+                    scene.add(ambientLight);
+                    const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+                    dirLight.position.set(5, 10, 7);
+                    scene.add(dirLight);
+                    sceneRef.current = scene;
+                };
+                init();
+                const resizeObserver = new ResizeObserver(entries => {
+                    for (const entry of entries) {
+                        const { width, height } = entry.contentRect;
+                        if (width > 0 && height > 0 && cameraRef.current && rendererRef.current) {
+                            cameraRef.current.aspect = width / height;
+                            cameraRef.current.updateProjectionMatrix();
+                            rendererRef.current.setSize(width, height);
+                        }
+                    }
+                });
+                resizeObserver.observe(containerRef.current);
+                return () => {
+                    resizeObserver.disconnect();
+                    if (animationRef.current) cancelAnimationFrame(animationRef.current);
+                    if (rendererRef.current && containerRef.current) {
+                        try { containerRef.current.removeChild(rendererRef.current.domElement); } catch (e) { }
+                        rendererRef.current.dispose();
+                    }
+                };
+            }, []);
+
+            // Controls
+            useEffect(() => {
+                const container = containerRef.current;
+                if (!container) return;
+                const handleMouseDown = (e) => { isDraggingRef.current = true; previousMouseRef.current = { x: e.clientX, y: e.clientY }; };
+                const handleMouseMove = (e) => {
+                    if (!isDraggingRef.current) return;
+                    const deltaX = e.clientX - previousMouseRef.current.x;
+                    const deltaY = e.clientY - previousMouseRef.current.y;
+                    rotationRef.current.y -= deltaX * 0.008;
+                    rotationRef.current.x += deltaY * 0.008;
+                    rotationRef.current.x = Math.max(-Math.PI / 2.2, Math.min(Math.PI / 2.2, rotationRef.current.x));
+                    previousMouseRef.current = { x: e.clientX, y: e.clientY };
+                };
+                const handleMouseUp = () => { isDraggingRef.current = false; };
+                const handleWheel = (e) => {
+                    e.preventDefault();
+                    zoomRef.current += e.deltaY * 0.01;
+                    zoomRef.current = Math.max(5, Math.min(20, zoomRef.current));
+                };
+                container.addEventListener('mousedown', handleMouseDown);
+                window.addEventListener('mousemove', handleMouseMove);
+                window.addEventListener('mouseup', handleMouseUp);
+                container.addEventListener('wheel', handleWheel, { passive: false });
+                return () => {
+                    container.removeEventListener('mousedown', handleMouseDown);
+                    window.removeEventListener('mousemove', handleMouseMove);
+                    window.removeEventListener('mouseup', handleMouseUp);
+                    container.removeEventListener('wheel', handleWheel);
+                };
+            }, []);
+
+            // Drawing 2D Views
+            const drawFrontView = () => {
+                const canvas = frontViewRef.current;
+                if (!canvas) return;
+                const dpr = window.devicePixelRatio || 1;
+                const logicalWidth = 200;
+                const logicalHeight = 160;
+                if(canvas.width !== logicalWidth * dpr) {
+                    canvas.width = logicalWidth * dpr;
+                    canvas.height = logicalHeight * dpr;
+                }
+                const ctx = canvas.getContext('2d');
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.scale(dpr, dpr);
+                const width = logicalWidth;
+                const height = logicalHeight;
+                const centerX = width / 2;
+                const centerY = height / 2 + 8;
+                ctx.fillStyle = '#070b14';
+                ctx.fillRect(0, 0, width, height);
+                const maxR = Math.min(width, height - 30) * 0.42;
+                ctx.strokeStyle = '#1a2332';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.arc(centerX, centerY, maxR, 0, Math.PI * 2);
+                ctx.stroke();
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = 1.5;
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY - maxR - 8);
+                ctx.lineTo(centerX, centerY + maxR + 8);
+                ctx.stroke();
+                ctx.strokeStyle = '#ef4444';
+                ctx.beginPath();
+                ctx.moveTo(centerX - maxR - 8, centerY);
+                ctx.lineTo(centerX + maxR + 8, centerY);
+                ctx.stroke();
+                ctx.font = 'bold 10px system-ui';
+                ctx.fillStyle = '#3b82f6';
+                ctx.fillText('E', centerX + 5, centerY - maxR - 3);
+                ctx.fillStyle = '#ef4444';
+                ctx.fillText('H', centerX + maxR + 4, centerY + 4);
+                
+                // --- FIX: Using 't' here correctly requires 'lang' dependency in useEffect ---
+                ctx.fillStyle = '#64748b';
+                ctx.font = '10px system-ui';
+                ctx.textAlign = 'center';
+                ctx.fillText(t.viewFront, width / 2, 12);
+                ctx.textAlign = 'left';
+                
+                const tm = timeRef.current;
+                const omega = 2 * Math.PI * frequency;
+                const phase = -omega * tm;
+                const scale = maxR / amplitude * 0.8;
+                ctx.beginPath();
+                ctx.strokeStyle = 'rgba(59, 130, 246, 0.25)';
+                ctx.lineWidth = 1.5;
+                for (let i = 0; i < 100; i++) {
+                    const ph = phase - i * 0.06;
+                    let ey, ez;
+                    switch (polarization) {
+                        case 'circular-r': ey = amplitude * Math.cos(ph); ez = amplitude * Math.sin(ph); break;
+                        case 'circular-l': ey = amplitude * Math.cos(ph); ez = -amplitude * Math.sin(ph); break;
+                        case 'elliptical': ey = amplitude * Math.cos(ph); ez = amplitude * ellipticity * Math.sin(ph); break;
+                        default: ey = amplitude * Math.sin(ph); ez = 0;
+                    }
+                    const px = centerX + ez * scale;
+                    const py = centerY - ey * scale;
+                    if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+                }
+                ctx.stroke();
+                let ey, ez;
+                switch (polarization) {
+                    case 'circular-r': ey = amplitude * Math.cos(phase); ez = amplitude * Math.sin(phase); break;
+                    case 'circular-l': ey = amplitude * Math.cos(phase); ez = -amplitude * Math.sin(phase); break;
+                    case 'elliptical': ey = amplitude * Math.cos(phase); ez = amplitude * ellipticity * Math.sin(phase); break;
+                    default: ey = amplitude * Math.sin(phase); ez = 0;
+                }
+                const px = centerX + ez * scale;
+                const py = centerY - ey * scale;
+                ctx.strokeStyle = '#3b82f6';
+                ctx.lineWidth = 2.5;
+                ctx.shadowColor = '#3b82f6';
+                ctx.shadowBlur = 8;
+                ctx.beginPath();
+                ctx.moveTo(centerX, centerY);
+                ctx.lineTo(px, py);
+                ctx.stroke();
+                ctx.fillStyle = '#60a5fa';
+                ctx.beginPath();
+                ctx.arc(px, py, 4, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.shadowBlur = 0;
+            };
+
+            const drawSideView = () => {
+                const canvas = sideViewRef.current;
+                if (!canvas) return;
+                const dpr = window.devicePixelRatio || 1;
+                const width = 200;
+                const height = 100;
+                if(canvas.width !== width * dpr) {
+                    canvas.width = width * dpr;
+                    canvas.height = height * dpr;
+                }
+                const ctx = canvas.getContext('2d');
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.scale(dpr, dpr);
+                ctx.fillStyle = '#070b14';
+                ctx.fillRect(0, 0, width, height);
+                const centerY = height / 2 + 6;
+                const startX = 25;
+                const endX = width - 15;
+                const maxAmp = height * 0.35;
+                ctx.strokeStyle = '#2d3d4f';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(startX, centerY);
+                ctx.lineTo(endX, centerY);
+                ctx.stroke();
+                
+                // --- FIX: Using 't' here correctly requires 'lang' dependency in useEffect ---
+                ctx.font = '10px system-ui';
+                ctx.fillStyle = '#64748b';
+                ctx.textAlign = 'center';
+                ctx.fillText(t.viewSide, width / 2, 12);
+                ctx.textAlign = 'left';
+                
+                ctx.fillStyle = '#3b82f6';
+                ctx.fillText('E', 8, centerY - maxAmp + 5);
+                ctx.fillStyle = '#6b7280';
+                ctx.fillText('x', endX - 5, centerY + 12);
+                const tm = timeRef.current;
+                const k = 2 * Math.PI * frequency / 2;
+                const omega = 2 * Math.PI * frequency;
+                const scale = maxAmp / amplitude;
+                if (showE) {
+                    ctx.beginPath();
+                    ctx.strokeStyle = '#3b82f6';
+                    ctx.lineWidth = 2;
+                    for (let x = startX; x <= endX; x++) {
+                        const xNorm = (x - startX) / (endX - startX) * 10 - 5;
+                        const phase = k * xNorm - omega * tm;
+                        const decay = Math.exp(-attenuation * (xNorm + 5) / 3);
+                        let ey;
+                        switch (polarization) {
+                            case 'circular-r': case 'circular-l': case 'elliptical': ey = amplitude * Math.cos(phase) * decay; break;
+                            default: ey = amplitude * Math.sin(phase) * decay;
+                        }
+                        const py = centerY - ey * scale;
+                        if (x === startX) ctx.moveTo(x, py); else ctx.lineTo(x, py);
+                    }
+                    ctx.stroke();
+                }
+                if (attenuation > 0) {
+                    ctx.strokeStyle = 'rgba(251, 191, 36, 0.4)';
+                    ctx.lineWidth = 1;
+                    ctx.setLineDash([4, 3]);
+                    ctx.beginPath();
+                    for (let x = startX; x <= endX; x++) {
+                        const xNorm = (x - startX) / (endX - startX) * 10 - 5;
+                        const decay = Math.exp(-attenuation * (xNorm + 5) / 3);
+                        const py = centerY - amplitude * scale * decay;
+                        if (x === startX) ctx.moveTo(x, py); else ctx.lineTo(x, py);
+                    }
+                    ctx.stroke();
+                    ctx.beginPath();
+                    for (let x = startX; x <= endX; x++) {
+                        const xNorm = (x - startX) / (endX - startX) * 10 - 5;
+                        const decay = Math.exp(-attenuation * (xNorm + 5) / 3);
+                        const py = centerY + amplitude * scale * decay;
+                        if (x === startX) ctx.moveTo(x, py); else ctx.lineTo(x, py);
+                    }
+                    ctx.stroke();
+                    ctx.setLineDash([]);
+                }
+            };
+
+            // Main Animation
+            useEffect(() => {
+                const scene = sceneRef.current;
+                const camera = cameraRef.current;
+                const renderer = rendererRef.current;
+                if (!scene || !camera || !renderer) return;
+
+                const toRemove = [];
+                scene.traverse((obj) => { if (obj.userData.isWave || obj.userData.isAxis || obj.userData.isLabel) toRemove.push(obj); });
+                toRemove.forEach(obj => { scene.remove(obj); if (obj.geometry) obj.geometry.dispose(); });
+
+                if (showAxes) {
+                    const axisLen = 6.5;
+                    const createAxis = (color, pts) => {
+                         const geo = new THREE.BufferGeometry().setFromPoints(pts);
+                         const mat = new THREE.LineBasicMaterial({ color });
+                         const line = new THREE.Line(geo, mat);
+                         line.userData.isAxis = true;
+                         scene.add(line);
+                    }
+                    createAxis(0x6b7280, [new THREE.Vector3(-axisLen,0,0), new THREE.Vector3(axisLen,0,0)]);
+                    createAxis(0x3b82f6, [new THREE.Vector3(0,-3,0), new THREE.Vector3(0,3,0)]);
+                    createAxis(0xef4444, [new THREE.Vector3(0,0,-3), new THREE.Vector3(0,0,3)]);
+
+                    const createArrow = (color, pos, rot) => {
+                         const geo = new THREE.ConeGeometry(0.12, 0.35, 8);
+                         const mat = new THREE.MeshBasicMaterial({ color });
+                         const mesh = new THREE.Mesh(geo, mat);
+                         mesh.position.copy(pos);
+                         mesh.rotation.set(rot.x, rot.y, rot.z);
+                         mesh.userData.isAxis = true;
+                         scene.add(mesh);
+                    }
+                    createArrow(0x6b7280, new THREE.Vector3(axisLen,0,0), {x:0,y:0,z:-Math.PI/2});
+                    createArrow(0x3b82f6, new THREE.Vector3(0,3,0), {x:0,y:0,z:0});
+                    createArrow(0xef4444, new THREE.Vector3(0,0,3), {x:Math.PI/2,y:0,z:0});
+
+                    const createLabel = (color, pos) => {
+                        const geo = new THREE.SphereGeometry(0.15, 8, 8);
+                        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8 });
+                        const mesh = new THREE.Mesh(geo, mat);
+                        mesh.position.copy(pos);
+                        mesh.userData.isLabel = true;
+                        scene.add(mesh);
+                    }
+                    createLabel(0x6b7280, new THREE.Vector3(axisLen+0.8,0,0));
+                    createLabel(0x3b82f6, new THREE.Vector3(0,3.5,0));
+                    createLabel(0xef4444, new THREE.Vector3(0,0,3.5));
+                }
+
+                const animate = () => {
+                    animationRef.current = requestAnimationFrame(animate);
+                    if (!paused) timeRef.current += 0.025 * speed;
+
+                    const radius = zoomRef.current;
+                    const rx = rotationRef.current.x;
+                    const ry = rotationRef.current.y;
+                    camera.position.x = radius * Math.cos(rx) * Math.sin(ry);
+                    camera.position.y = radius * Math.sin(rx) + 1;
+                    camera.position.z = radius * Math.cos(rx) * Math.cos(ry);
+                    camera.lookAt(0, 0, 0);
+
+                    const oldWaves = [];
+                    scene.traverse(obj => { if(obj.userData.isWaveLine) oldWaves.push(obj); });
+                    oldWaves.forEach(obj => { scene.remove(obj); if(obj.geometry) obj.geometry.dispose(); });
+
+                    const tm = timeRef.current;
+                    const k = 2 * Math.PI * frequency / 4;
+                    const omega = 2 * Math.PI * frequency;
+                    const numPoints = 180;
+                    const xStart = -5.5; const xEnd = 5.5;
+
+                    const getFields = (x) => {
+                        const phase = k * x - omega * tm;
+                        const decay = Math.exp(-attenuation * (x - xStart) / 3);
+                        let ey=0, ez=0, hy=0, hz=0;
+                        switch (polarization) {
+                            case 'circular-r': ey = amplitude * Math.cos(phase); ez = amplitude * Math.sin(phase); hz = amplitude * Math.cos(phase); hy = -amplitude * Math.sin(phase); break;
+                            case 'circular-l': ey = amplitude * Math.cos(phase); ez = -amplitude * Math.sin(phase); hz = amplitude * Math.cos(phase); hy = amplitude * Math.sin(phase); break;
+                            case 'elliptical': ey = amplitude * Math.cos(phase); ez = amplitude * ellipticity * Math.sin(phase); hz = amplitude * Math.cos(phase); hy = -amplitude * ellipticity * Math.sin(phase); break;
+                            default: ey = amplitude * Math.sin(phase); hz = amplitude * Math.sin(phase);
+                        }
+                        return { ey: ey*decay, ez: ez*decay, hy: hy*decay, hz: hz*decay };
+                    };
+
+                    const drawWave = (color, type) => {
+                        const pts = [];
+                        for(let i=0; i<=numPoints; i++) {
+                            const x = xStart + (xEnd-xStart)*(i/numPoints);
+                            const f = getFields(x);
+                            if(type==='E') pts.push(new THREE.Vector3(x, f.ey, f.ez));
+                            else pts.push(new THREE.Vector3(x, f.hy, f.hz));
+                        }
+                        const curve = new THREE.CatmullRomCurve3(pts);
+                        const geo = new THREE.TubeGeometry(curve, numPoints, 0.05, 8, false);
+                        const mat = new THREE.MeshBasicMaterial({ color });
+                        const mesh = new THREE.Mesh(geo, mat);
+                        mesh.userData.isWaveLine = true;
+                        scene.add(mesh);
+
+                        for(let i=0; i<=18; i++) {
+                            const x = xStart + (xEnd-xStart)*(i/18);
+                            const f = getFields(x);
+                            const y = type==='E'?f.ey:f.hy;
+                            const z = type==='E'?f.ez:f.hz;
+                            const mag = Math.sqrt(y*y + z*z);
+                            if(mag > 0.08) {
+                                const vGeo = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(x,0,0), new THREE.Vector3(x,y,z)]);
+                                const vMat = new THREE.LineBasicMaterial({ color, transparent:true, opacity:0.4 });
+                                const vLine = new THREE.Line(vGeo, vMat);
+                                vLine.userData.isWaveLine = true;
+                                scene.add(vLine);
+                                const aGeo = new THREE.ConeGeometry(0.07, 0.18, 6);
+                                const aMat = new THREE.MeshBasicMaterial({ color });
+                                const arr = new THREE.Mesh(aGeo, aMat);
+                                arr.position.set(x,y,z);
+                                const dir = new THREE.Vector3(0,y,z).normalize();
+                                arr.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), dir);
+                                arr.userData.isWaveLine = true;
+                                scene.add(arr);
+                            }
+                        }
+                    }
+
+                    if(showE) drawWave(0x3b82f6, 'E');
+                    if(showH) drawWave(0xef4444, 'H');
+
+                    if (showPoynting) {
+                        for (let i = 0; i <= 10; i++) {
+                            const x = xStart + (xEnd - xStart) * (i / 10);
+                            const f = getFields(x);
+                            const sMag = (Math.sqrt(f.ey*f.ey + f.ez*f.ez) * Math.sqrt(f.hy*f.hy + f.hz*f.hz)) / (amplitude*amplitude);
+                            if (sMag > 0.05) {
+                                const sLen = sMag * 1.2;
+                                const sGeo = new THREE.CylinderGeometry(0.04, 0.04, sLen, 8);
+                                const sMat = new THREE.MeshBasicMaterial({ color: 0x10b981 });
+                                const sMesh = new THREE.Mesh(sGeo, sMat);
+                                sMesh.position.set(x + sLen / 2, 0, 0);
+                                sMesh.rotation.z = -Math.PI / 2;
+                                sMesh.userData.isWaveLine = true;
+                                scene.add(sMesh);
+                                const arr = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.25, 6), sMat);
+                                arr.position.set(x + sLen, 0, 0);
+                                arr.rotation.z = -Math.PI / 2;
+                                arr.userData.isWaveLine = true;
+                                scene.add(arr);
+                            }
+                        }
+                    }
+
+                    renderer.render(scene, camera);
+                    drawFrontView();
+                    drawSideView();
+                };
+                animate();
+                return () => cancelAnimationFrame(animationRef.current);
+                // --- FIX: Added 'lang' dependency so views update text on lang change ---
+            }, [paused, speed, frequency, amplitude, polarization, ellipticity, attenuation, showE, showH, showPoynting, showAxes, lang]);
+
+            const toggleFullscreen = () => { if (!isFullscreen) document.documentElement.requestFullscreen?.(); else document.exitFullscreen?.(); };
+            useEffect(() => {
+                const h = () => setIsFullscreen(!!document.fullscreenElement);
+                document.addEventListener('fullscreenchange', h);
+                return () => document.removeEventListener('fullscreenchange', h);
+            }, []);
+            const setView = (v) => {
+                switch (v) {
+                    case 'front': rotationRef.current = { x: 0, y: Math.PI / 2 }; break;
+                    case 'side': rotationRef.current = { x: 0, y: 0 }; break;
+                    case 'top': rotationRef.current = { x: Math.PI / 2.2, y: 0 }; break;
+                    default: rotationRef.current = { x: 0.4, y: -0.6 };
+                }
+            };
+            const toggleLang = () => setLang(l => l === 'uk' ? 'en' : 'uk');
+
+            return (
+                <div className={`bg-slate-950 text-white ${isFullscreen ? 'fixed inset-0 z-50' : 'h-full'} flex flex-col`}>
+                    <div className="flex-1 flex min-h-0">
+                        {/* LEFT PANEL */}
+                        <div className="w-52 flex flex-col gap-2 p-3 overflow-y-auto shrink-0 border-r border-slate-800">
+                            
+                            {/* Header with Title and Lang Switcher */}
+                            <div className="flex items-center justify-between mb-2 px-1">
+                                <h1 className="text-xs font-bold text-slate-200">{t.title}</h1>
+                                {/* --- FIX: Changed label to UA / EN --- */}
+                                <button onClick={toggleLang} className="text-[10px] font-bold px-2 py-0.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-300">
+                                    {lang === 'uk' ? 'UA' : 'EN'}
+                                </button>
+                            </div>
+
+                            {/* View Buttons */}
+                            <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-800">
+                                <div className="grid grid-cols-4 gap-1 mb-2">
+                                    <button onClick={() => setView('iso')} className="px-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px] text-center">{t.iso}</button>
+                                    <button onClick={() => setView('front')} className="px-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px] text-center">{t.front}</button>
+                                    <button onClick={() => setView('side')} className="px-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px] text-center">{t.side}</button>
+                                    <button onClick={() => setView('top')} className="px-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px] text-center">{t.top}</button>
+                                </div>
+                                <button onClick={toggleFullscreen} className="w-full py-1 bg-slate-800 hover:bg-slate-700 rounded text-xs text-slate-400">
+                                    {isFullscreen ? t.exitFullscreen : t.fullscreen}
+                                </button>
+                            </div>
+
+                            {/* Parameters */}
+                            <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800">
+                                <h3 className="font-medium text-xs mb-2 text-slate-300 uppercase tracking-wide">{t.params}</h3>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="flex justify-between text-xs text-slate-400 mb-1">
+                                            <span>{t.freq}</span><span className="text-blue-400">{frequency.toFixed(1)}</span>
+                                        </label>
+                                        <input type="range" min="0.5" max="3" step="0.1" value={frequency} onChange={(e) => setFrequency(Number(e.target.value))} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
+                                    </div>
+                                    <div>
+                                        <label className="flex justify-between text-xs text-slate-400 mb-1">
+                                            <span>{t.amp}</span><span className="text-blue-400">{amplitude.toFixed(1)}</span>
+                                        </label>
+                                        <input type="range" min="0.5" max="3" step="0.1" value={amplitude} onChange={(e) => setAmplitude(Number(e.target.value))} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Physics */}
+                            <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800">
+                                <h3 className="font-medium text-xs mb-2 text-slate-300 uppercase tracking-wide">{t.physics}</h3>
+                                <div className="space-y-3">
+                                    <div>
+                                        <label className="flex justify-between text-xs text-slate-400 mb-1">
+                                            <span>{t.speed}</span><span className="text-amber-400">{paused ? '⏸' : speed.toFixed(1) + 'x'}</span>
+                                        </label>
+                                        <div className="flex gap-2">
+                                            <button onClick={() => setPaused(!paused)} className="px-2 py-0.5 bg-slate-700 hover:bg-slate-600 rounded text-xs min-w-[30px]">
+                                                {paused ? '▶' : '⏸'}
+                                            </button>
+                                            <input type="range" min="0.1" max="3" step="0.1" value={speed} onChange={(e) => setSpeed(Number(e.target.value))} className="flex-1 h-1 my-auto bg-slate-700 rounded-lg appearance-none cursor-pointer" />
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="flex justify-between text-xs text-slate-400 mb-1">
+                                            <span>{t.attenuation}</span><span className="text-red-400">{attenuation.toFixed(1)}</span>
+                                        </label>
+                                        <input type="range" min="0" max="2" step="0.1" value={attenuation} onChange={(e) => setAttenuation(Number(e.target.value))} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Polarization */}
+                            <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 flex-1">
+                                <h3 className="font-medium text-xs mb-2 text-slate-300 uppercase tracking-wide">{t.polarization}</h3>
+                                <div className="space-y-1.5">
+                                    {[
+                                        { value: 'linear', label: t.polLinear },
+                                        { value: 'circular-r', label: t.polCircR },
+                                        { value: 'circular-l', label: t.polCircL },
+                                        { value: 'elliptical', label: t.polEllip },
+                                    ].map(opt => (
+                                        <label key={opt.value} className="flex items-center gap-2 cursor-pointer group">
+                                            <div className={`w-3 h-3 rounded-full border flex items-center justify-center ${polarization === opt.value ? 'border-blue-500' : 'border-slate-600'}`}>
+                                                {polarization === opt.value && <div className="w-1.5 h-1.5 bg-blue-500 rounded-full"></div>}
+                                            </div>
+                                            <input type="radio" name="pol" value={opt.value} checked={polarization === opt.value} onChange={(e) => setPolarization(e.target.value)} className="hidden" />
+                                            <span className={`text-xs ${polarization === opt.value ? 'text-blue-400' : 'text-slate-400 group-hover:text-slate-300'}`}>
+                                                {opt.label}
+                                            </span>
+                                        </label>
+                                    ))}
+                                </div>
+                                {polarization === 'elliptical' && (
+                                    <div className="mt-3">
+                                        <label className="flex justify-between text-xs text-slate-400 mb-1">
+                                            <span>{t.ellipticity}</span><span className="text-purple-400">{ellipticity.toFixed(1)}</span>
+                                        </label>
+                                        <input type="range" min="0.1" max="1" step="0.1" value={ellipticity} onChange={(e) => setEllipticity(Number(e.target.value))} className="w-full h-1 bg-slate-700 rounded-lg appearance-none cursor-pointer" />
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* CENTER */}
+                        <div ref={containerRef} className="flex-1 cursor-grab active:cursor-grabbing touch-none min-w-0 overflow-hidden bg-slate-950" />
+
+                        {/* RIGHT PANEL */}
+                        <div className="w-56 flex flex-col gap-2 p-3 overflow-y-auto shrink-0 border-l border-slate-800">
+                            <div className="bg-slate-900/50 rounded-lg border border-slate-800 p-2 flex flex-col items-center">
+                                <canvas ref={frontViewRef} className="rounded mb-1" style={{ width: '200px', height: '160px' }} />
+                            </div>
+                            <div className="bg-slate-900/50 rounded-lg border border-slate-800 p-2 flex flex-col items-center">
+                                <canvas ref={sideViewRef} className="rounded mb-1" style={{ width: '200px', height: '100px' }} />
+                            </div>
+                            <div className="bg-slate-900/50 rounded-lg border border-slate-800 p-3">
+                                <h3 className="font-medium text-xs mb-2 text-slate-300 uppercase tracking-wide">{t.controlLegend}</h3>
+                                <div className="space-y-1">
+                                    <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-800/50 p-1 rounded transition">
+                                        <input type="checkbox" checked={showE} onChange={(e) => setShowE(e.target.checked)} className="w-3.5 h-3.5 rounded accent-blue-500 cursor-pointer" />
+                                        <div className="w-2.5 h-2.5 rounded-full bg-blue-500 shadow-[0_0_5px_rgba(59,130,246,0.5)]"></div>
+                                        <span className={`text-xs ${showE ? 'text-blue-100' : 'text-slate-500'}`}>{t.legendE}</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-800/50 p-1 rounded transition">
+                                        <input type="checkbox" checked={showH} onChange={(e) => setShowH(e.target.checked)} className="w-3.5 h-3.5 rounded accent-red-500 cursor-pointer" />
+                                        <div className="w-2.5 h-2.5 rounded-full bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.5)]"></div>
+                                        <span className={`text-xs ${showH ? 'text-red-100' : 'text-slate-500'}`}>{t.legendH}</span>
+                                    </label>
+                                    <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-800/50 p-1 rounded transition">
+                                        <input type="checkbox" checked={showPoynting} onChange={(e) => setShowPoynting(e.target.checked)} className="w-3.5 h-3.5 rounded accent-emerald-500 cursor-pointer" />
+                                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]"></div>
+                                        <span className={`text-xs ${showPoynting ? 'text-emerald-100' : 'text-slate-500'}`}>{t.legendS}</span>
+                                    </label>
+                                    <div className="h-px bg-slate-800 my-1"></div>
+                                    <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-800/50 p-1 rounded transition">
+                                        <input type="checkbox" checked={showAxes} onChange={(e) => setShowAxes(e.target.checked)} className="w-3.5 h-3.5 rounded accent-slate-500 cursor-pointer" />
+                                        <div className="w-2.5 h-2.5 rounded-full bg-slate-500"></div>
+                                        <span className={`text-xs ${showAxes ? 'text-slate-200' : 'text-slate-500'}`}>{t.legendAxes}</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<EMWave3D />);
+    </script>
+</body>
+
+</html>
