@@ -13,7 +13,6 @@
     <style>
         body { margin: 0; overflow: hidden; height: 100%; background-color: #020617; }
         html { height: 100%; }
-        /* Scrollbar styles */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: #0f172a; }
         ::-webkit-scrollbar-thumb { background: #334155; border-radius: 3px; }
@@ -39,6 +38,9 @@
                 legendH: 'H⃗ магнітне поле',
                 legendS: 'S⃗ вектор Пойнтінга',
                 legendAxes: 'XYZ (k⃗ поширення)',
+                realRatio: 'Реальне E/H',
+                ratioNote: 'Z₀ = E/H ≈ 377 Ω',
+                ratioNoteDetail: '(H показано ×0.1)',
                 params: 'Параметри',
                 freq: 'Частота',
                 amp: 'Амплітуда',
@@ -53,7 +55,7 @@
                 viewFront: 'Вигляд вздовж X',
                 viewSide: 'Вигляд збоку (XY)',
                 physics: 'Фізика',
-                controlLegend: 'Відображення (Legend)',
+                controlLegend: 'Відображення',
                 fullscreen: '⛶',
                 exitFullscreen: '✕'
             },
@@ -68,6 +70,9 @@
                 legendH: 'H⃗ magnetic field',
                 legendS: 'S⃗ Poynting vector',
                 legendAxes: 'XYZ (k⃗ propagation)',
+                realRatio: 'Real E/H',
+                ratioNote: 'Z₀ = E/H ≈ 377 Ω',
+                ratioNoteDetail: '(H shown ×0.1)',
                 params: 'Parameters',
                 freq: 'Frequency',
                 amp: 'Amplitude',
@@ -82,7 +87,7 @@
                 viewFront: 'View along X',
                 viewSide: 'Side view (XY)',
                 physics: 'Physics',
-                controlLegend: 'Display & Legend',
+                controlLegend: 'Display',
                 fullscreen: '⛶',
                 exitFullscreen: '✕'
             }
@@ -102,7 +107,6 @@
             const rotationRef = useRef({ x: 0.4, y: -0.6 });
             const zoomRef = useRef(10);
 
-            // Lang setup
             const getUrlLang = () => {
                 const params = new URLSearchParams(window.location.search);
                 const l = params.get('lang');
@@ -121,7 +125,6 @@
 
             const t = TRANSLATIONS[lang] || TRANSLATIONS['uk'];
 
-            // State
             const [paused, setPaused] = useState(false);
             const [speed, setSpeed] = useState(1);
             const [frequency, setFrequency] = useState(1);
@@ -133,9 +136,12 @@
             const [showH, setShowH] = useState(true);
             const [showPoynting, setShowPoynting] = useState(false);
             const [showAxes, setShowAxes] = useState(true);
+            const [realRatio, setRealRatio] = useState(false);
             const [isFullscreen, setIsFullscreen] = useState(false);
 
-            // Three.js Init
+            // Real E/H ratio factor (377:1 is too extreme, use 10:1 for visualization)
+            const H_SCALE = realRatio ? 0.1 : 1.0;
+
             useEffect(() => {
                 if (!containerRef.current) return;
                 const init = () => {
@@ -179,7 +185,6 @@
                 };
             }, []);
 
-            // Controls
             useEffect(() => {
                 const container = containerRef.current;
                 if (!container) return;
@@ -211,7 +216,6 @@
                 };
             }, []);
 
-            // Drawing 2D Views
             const drawFrontView = () => {
                 const canvas = frontViewRef.current;
                 if (!canvas) return;
@@ -237,24 +241,29 @@
                 ctx.beginPath();
                 ctx.arc(centerX, centerY, maxR, 0, Math.PI * 2);
                 ctx.stroke();
+                
+                // E axis (full height)
                 ctx.strokeStyle = '#3b82f6';
                 ctx.lineWidth = 1.5;
                 ctx.beginPath();
                 ctx.moveTo(centerX, centerY - maxR - 8);
                 ctx.lineTo(centerX, centerY + maxR + 8);
                 ctx.stroke();
+                
+                // H axis (scaled if realRatio)
+                const hAxisLen = realRatio ? maxR * H_SCALE + 8 : maxR + 8;
                 ctx.strokeStyle = '#ef4444';
                 ctx.beginPath();
-                ctx.moveTo(centerX - maxR - 8, centerY);
-                ctx.lineTo(centerX + maxR + 8, centerY);
+                ctx.moveTo(centerX - hAxisLen, centerY);
+                ctx.lineTo(centerX + hAxisLen, centerY);
                 ctx.stroke();
+                
                 ctx.font = 'bold 10px system-ui';
                 ctx.fillStyle = '#3b82f6';
                 ctx.fillText('E', centerX + 5, centerY - maxR - 3);
                 ctx.fillStyle = '#ef4444';
-                ctx.fillText('H', centerX + maxR + 4, centerY + 4);
+                ctx.fillText('H', centerX + (realRatio ? hAxisLen - 4 : maxR + 4), centerY + 4);
                 
-                // --- FIX: Using 't' here correctly requires 'lang' dependency in useEffect ---
                 ctx.fillStyle = '#64748b';
                 ctx.font = '10px system-ui';
                 ctx.textAlign = 'center';
@@ -272,9 +281,9 @@
                     const ph = phase - i * 0.06;
                     let ey, ez;
                     switch (polarization) {
-                        case 'circular-r': ey = amplitude * Math.cos(ph); ez = amplitude * Math.sin(ph); break;
-                        case 'circular-l': ey = amplitude * Math.cos(ph); ez = -amplitude * Math.sin(ph); break;
-                        case 'elliptical': ey = amplitude * Math.cos(ph); ez = amplitude * ellipticity * Math.sin(ph); break;
+                        case 'circular-r': ey = amplitude * Math.cos(ph); ez = amplitude * Math.sin(ph) * H_SCALE; break;
+                        case 'circular-l': ey = amplitude * Math.cos(ph); ez = -amplitude * Math.sin(ph) * H_SCALE; break;
+                        case 'elliptical': ey = amplitude * Math.cos(ph); ez = amplitude * ellipticity * Math.sin(ph) * H_SCALE; break;
                         default: ey = amplitude * Math.sin(ph); ez = 0;
                     }
                     const px = centerX + ez * scale;
@@ -284,9 +293,9 @@
                 ctx.stroke();
                 let ey, ez;
                 switch (polarization) {
-                    case 'circular-r': ey = amplitude * Math.cos(phase); ez = amplitude * Math.sin(phase); break;
-                    case 'circular-l': ey = amplitude * Math.cos(phase); ez = -amplitude * Math.sin(phase); break;
-                    case 'elliptical': ey = amplitude * Math.cos(phase); ez = amplitude * ellipticity * Math.sin(phase); break;
+                    case 'circular-r': ey = amplitude * Math.cos(phase); ez = amplitude * Math.sin(phase) * H_SCALE; break;
+                    case 'circular-l': ey = amplitude * Math.cos(phase); ez = -amplitude * Math.sin(phase) * H_SCALE; break;
+                    case 'elliptical': ey = amplitude * Math.cos(phase); ez = amplitude * ellipticity * Math.sin(phase) * H_SCALE; break;
                     default: ey = amplitude * Math.sin(phase); ez = 0;
                 }
                 const px = centerX + ez * scale;
@@ -332,7 +341,6 @@
                 ctx.lineTo(endX, centerY);
                 ctx.stroke();
                 
-                // --- FIX: Using 't' here correctly requires 'lang' dependency in useEffect ---
                 ctx.font = '10px system-ui';
                 ctx.fillStyle = '#64748b';
                 ctx.textAlign = 'center';
@@ -389,7 +397,6 @@
                 }
             };
 
-            // Main Animation
             useEffect(() => {
                 const scene = sceneRef.current;
                 const camera = cameraRef.current;
@@ -402,6 +409,8 @@
 
                 if (showAxes) {
                     const axisLen = 6.5;
+                    const hAxisLen = realRatio ? 3 * H_SCALE : 3;
+                    
                     const createAxis = (color, pts) => {
                          const geo = new THREE.BufferGeometry().setFromPoints(pts);
                          const mat = new THREE.LineBasicMaterial({ color });
@@ -411,7 +420,7 @@
                     }
                     createAxis(0x6b7280, [new THREE.Vector3(-axisLen,0,0), new THREE.Vector3(axisLen,0,0)]);
                     createAxis(0x3b82f6, [new THREE.Vector3(0,-3,0), new THREE.Vector3(0,3,0)]);
-                    createAxis(0xef4444, [new THREE.Vector3(0,0,-3), new THREE.Vector3(0,0,3)]);
+                    createAxis(0xef4444, [new THREE.Vector3(0,0,-hAxisLen), new THREE.Vector3(0,0,hAxisLen)]);
 
                     const createArrow = (color, pos, rot) => {
                          const geo = new THREE.ConeGeometry(0.12, 0.35, 8);
@@ -424,7 +433,7 @@
                     }
                     createArrow(0x6b7280, new THREE.Vector3(axisLen,0,0), {x:0,y:0,z:-Math.PI/2});
                     createArrow(0x3b82f6, new THREE.Vector3(0,3,0), {x:0,y:0,z:0});
-                    createArrow(0xef4444, new THREE.Vector3(0,0,3), {x:Math.PI/2,y:0,z:0});
+                    createArrow(0xef4444, new THREE.Vector3(0,0,hAxisLen), {x:Math.PI/2,y:0,z:0});
 
                     const createLabel = (color, pos) => {
                         const geo = new THREE.SphereGeometry(0.15, 8, 8);
@@ -436,7 +445,7 @@
                     }
                     createLabel(0x6b7280, new THREE.Vector3(axisLen+0.8,0,0));
                     createLabel(0x3b82f6, new THREE.Vector3(0,3.5,0));
-                    createLabel(0xef4444, new THREE.Vector3(0,0,3.5));
+                    createLabel(0xef4444, new THREE.Vector3(0,0,hAxisLen+0.5));
                 }
 
                 const animate = () => {
@@ -466,10 +475,27 @@
                         const decay = Math.exp(-attenuation * (x - xStart) / 3);
                         let ey=0, ez=0, hy=0, hz=0;
                         switch (polarization) {
-                            case 'circular-r': ey = amplitude * Math.cos(phase); ez = amplitude * Math.sin(phase); hz = amplitude * Math.cos(phase); hy = -amplitude * Math.sin(phase); break;
-                            case 'circular-l': ey = amplitude * Math.cos(phase); ez = -amplitude * Math.sin(phase); hz = amplitude * Math.cos(phase); hy = amplitude * Math.sin(phase); break;
-                            case 'elliptical': ey = amplitude * Math.cos(phase); ez = amplitude * ellipticity * Math.sin(phase); hz = amplitude * Math.cos(phase); hy = -amplitude * ellipticity * Math.sin(phase); break;
-                            default: ey = amplitude * Math.sin(phase); hz = amplitude * Math.sin(phase);
+                            case 'circular-r': 
+                                ey = amplitude * Math.cos(phase); 
+                                ez = amplitude * Math.sin(phase); 
+                                hz = amplitude * Math.cos(phase) * H_SCALE; 
+                                hy = -amplitude * Math.sin(phase) * H_SCALE; 
+                                break;
+                            case 'circular-l': 
+                                ey = amplitude * Math.cos(phase); 
+                                ez = -amplitude * Math.sin(phase); 
+                                hz = amplitude * Math.cos(phase) * H_SCALE; 
+                                hy = amplitude * Math.sin(phase) * H_SCALE; 
+                                break;
+                            case 'elliptical': 
+                                ey = amplitude * Math.cos(phase); 
+                                ez = amplitude * ellipticity * Math.sin(phase); 
+                                hz = amplitude * Math.cos(phase) * H_SCALE; 
+                                hy = -amplitude * ellipticity * Math.sin(phase) * H_SCALE; 
+                                break;
+                            default: 
+                                ey = amplitude * Math.sin(phase); 
+                                hz = amplitude * Math.sin(phase) * H_SCALE;
                         }
                         return { ey: ey*decay, ez: ez*decay, hy: hy*decay, hz: hz*decay };
                     };
@@ -520,7 +546,10 @@
                         for (let i = 0; i <= 10; i++) {
                             const x = xStart + (xEnd - xStart) * (i / 10);
                             const f = getFields(x);
-                            const sMag = (Math.sqrt(f.ey*f.ey + f.ez*f.ez) * Math.sqrt(f.hy*f.hy + f.hz*f.hz)) / (amplitude*amplitude);
+                            // Poynting vector S = E × H, magnitude proportional to E*H
+                            const eMag = Math.sqrt(f.ey*f.ey + f.ez*f.ez);
+                            const hMag = Math.sqrt(f.hy*f.hy + f.hz*f.hz);
+                            const sMag = (eMag * hMag) / (amplitude * amplitude * H_SCALE);
                             if (sMag > 0.05) {
                                 const sLen = sMag * 1.2;
                                 const sGeo = new THREE.CylinderGeometry(0.04, 0.04, sLen, 8);
@@ -545,8 +574,7 @@
                 };
                 animate();
                 return () => cancelAnimationFrame(animationRef.current);
-                // --- FIX: Added 'lang' dependency so views update text on lang change ---
-            }, [paused, speed, frequency, amplitude, polarization, ellipticity, attenuation, showE, showH, showPoynting, showAxes, lang]);
+            }, [paused, speed, frequency, amplitude, polarization, ellipticity, attenuation, showE, showH, showPoynting, showAxes, realRatio, lang]);
 
             const toggleFullscreen = () => { if (!isFullscreen) document.documentElement.requestFullscreen?.(); else document.exitFullscreen?.(); };
             useEffect(() => {
@@ -570,16 +598,13 @@
                         {/* LEFT PANEL */}
                         <div className="w-52 flex flex-col gap-2 p-3 overflow-y-auto shrink-0 border-r border-slate-800">
                             
-                            {/* Header with Title and Lang Switcher */}
                             <div className="flex items-center justify-between mb-2 px-1">
                                 <h1 className="text-xs font-bold text-slate-200">{t.title}</h1>
-                                {/* --- FIX: Changed label to UA / EN --- */}
                                 <button onClick={toggleLang} className="text-[10px] font-bold px-2 py-0.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded text-slate-300">
                                     {lang === 'uk' ? 'UA' : 'EN'}
                                 </button>
                             </div>
 
-                            {/* View Buttons */}
                             <div className="bg-slate-900/50 p-2 rounded-lg border border-slate-800">
                                 <div className="grid grid-cols-4 gap-1 mb-2">
                                     <button onClick={() => setView('iso')} className="px-1 py-1.5 bg-slate-700 hover:bg-slate-600 rounded text-[10px] text-center">{t.iso}</button>
@@ -592,7 +617,6 @@
                                 </button>
                             </div>
 
-                            {/* Parameters */}
                             <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800">
                                 <h3 className="font-medium text-xs mb-2 text-slate-300 uppercase tracking-wide">{t.params}</h3>
                                 <div className="space-y-3">
@@ -611,7 +635,6 @@
                                 </div>
                             </div>
 
-                            {/* Physics */}
                             <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800">
                                 <h3 className="font-medium text-xs mb-2 text-slate-300 uppercase tracking-wide">{t.physics}</h3>
                                 <div className="space-y-3">
@@ -635,7 +658,6 @@
                                 </div>
                             </div>
 
-                            {/* Polarization */}
                             <div className="bg-slate-900/50 p-3 rounded-lg border border-slate-800 flex-1">
                                 <h3 className="font-medium text-xs mb-2 text-slate-300 uppercase tracking-wide">{t.polarization}</h3>
                                 <div className="space-y-1.5">
@@ -703,6 +725,20 @@
                                         <span className={`text-xs ${showAxes ? 'text-slate-200' : 'text-slate-500'}`}>{t.legendAxes}</span>
                                     </label>
                                 </div>
+                            </div>
+                            
+                            {/* Real E/H Ratio */}
+                            <div className="bg-slate-900/50 rounded-lg border border-slate-800 p-3">
+                                <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-800/50 p-1 rounded transition">
+                                    <input type="checkbox" checked={realRatio} onChange={(e) => setRealRatio(e.target.checked)} className="w-3.5 h-3.5 rounded accent-amber-500 cursor-pointer" />
+                                    <span className={`text-xs ${realRatio ? 'text-amber-300' : 'text-slate-400'}`}>{t.realRatio}</span>
+                                </label>
+                                {realRatio && (
+                                    <div className="mt-2 p-2 bg-slate-800/50 rounded text-[10px] text-slate-400">
+                                        <div className="text-amber-400 font-medium">{t.ratioNote}</div>
+                                        <div className="text-slate-500 mt-0.5">{t.ratioNoteDetail}</div>
+                                    </div>
+                                )}
                             </div>
                         </div>
                     </div>
